@@ -4,6 +4,7 @@
 .env.*.local
 config.json
 secrets.*
+claude.md
 
 # 浏览器及系统临时文件/缓存
 .DS_Store
