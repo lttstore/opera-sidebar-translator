@@ -1,0 +1,20 @@
+# 敏感的个人配置文件 (防止不小心把写有 Key 的文件建在根目录下)
+.env
+.env.local
+.env.*.local
+config.json
+secrets.*
+
+# 浏览器及系统临时文件/缓存
+.DS_Store
+Thumbs.db
+*.log
+.npm/
+
+# IDE 与编辑器配置 (避免不小心把您个人的 IDE 偏好或工作流配置上传)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
