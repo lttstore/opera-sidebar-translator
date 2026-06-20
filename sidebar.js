@@ -48,12 +48,28 @@ const LANGUAGES = [
 // Application State
 // ──────────────────────────────────────────────
 const state = {
-  apiKey:        '',
-  apiTier:       'free',   // 'free' | 'pro'
-  sourceLang:    'AUTO',
-  targetLang:    'EN',
-  detectedLang:  null,     // detected source language code after translation
-  isTranslating: false,
+  apiKey:            '',
+  apiTier:           'free',   // 'free' | 'pro'
+  appTheme:          'claude', // 'minimal' | 'night' | 'claude'
+  translateSpeed:    'medium', // 'fast' | 'medium' | 'slow'
+  alternativesCount: '0',      // '0' | '1' | '2' | '3'
+  formality:         'default',// 'default' | 'prefer_more' | 'prefer_less'
+  sourceLang:        'AUTO',
+  targetLang:        'EN',
+  detectedLang:      null,     // detected source language code after translation
+  isTranslating:     false,
+};
+
+// ──────────────────────────────────────────────
+// Debounce & Abort Controller for "Type-as-you-Translate"
+// ──────────────────────────────────────────────
+let debounceTimer = null;
+let abortController = null;
+
+const SPEED_MAP = {
+  fast: 400,
+  medium: 500,
+  slow: 700
 };
 
 // ──────────────────────────────────────────────
@@ -62,7 +78,9 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 const els = {
+  html:           document.documentElement,
   settingsToggle: $('settingsToggle'),
+  closeSettings:  $('closeSettingsBtn'),
   settingsPanel:  $('settingsPanel'),
   apiKey:         $('apiKey'),
   eyeToggle:      $('eyeToggle'),
@@ -73,9 +91,11 @@ const els = {
   charCount:      $('charCount'),
   clearBtn:       $('clearBtn'),
   translateBtn:   $('translateBtn'),
+  formalitySelect:$('formalitySelect'),
   resultSection:  $('resultSection'),
   detectedLang:   $('detectedLang'),
   resultText:     $('resultText'),
+  alternativesBox:$('alternativesBox'),
   copyBtn:        $('copyBtn'),
   toast:          $('toast'),
 };
@@ -100,12 +120,21 @@ async function init() {
 async function loadSettings() {
   try {
     const data = await chrome.storage.local.get([
-      'apiKey', 'apiTier', 'sourceLang', 'targetLang',
+      'apiKey', 'apiTier', 'appTheme', 'translateSpeed', 'alternativesCount', 'formality', 'sourceLang', 'targetLang',
     ]);
-    if (data.apiKey     !== undefined) state.apiKey     = data.apiKey;
-    if (data.apiTier    !== undefined) state.apiTier    = data.apiTier;
-    if (data.sourceLang !== undefined) state.sourceLang = data.sourceLang;
-    if (data.targetLang !== undefined) state.targetLang = data.targetLang;
+    if (data.apiKey            !== undefined) state.apiKey            = data.apiKey;
+    if (data.apiTier           !== undefined) state.apiTier           = data.apiTier;
+    if (data.appTheme          !== undefined) {
+      // Migrate old themes safely to new equivalents
+      if (data.appTheme === 'pastel') state.appTheme = 'claude';
+      else if (data.appTheme === 'brutalist') state.appTheme = 'night';
+      else state.appTheme = data.appTheme;
+    }
+    if (data.translateSpeed    !== undefined) state.translateSpeed    = data.translateSpeed;
+    if (data.alternativesCount !== undefined) state.alternativesCount = data.alternativesCount;
+    if (data.formality         !== undefined) state.formality         = data.formality;
+    if (data.sourceLang        !== undefined) state.sourceLang        = data.sourceLang;
+    if (data.targetLang        !== undefined) state.targetLang        = data.targetLang;
   } catch (e) {
     console.warn('Could not load settings:', e);
   }
@@ -114,10 +143,14 @@ async function loadSettings() {
 async function saveSettings() {
   try {
     await chrome.storage.local.set({
-      apiKey:     state.apiKey,
-      apiTier:    state.apiTier,
-      sourceLang: state.sourceLang,
-      targetLang: state.targetLang,
+      apiKey:            state.apiKey,
+      apiTier:           state.apiTier,
+      appTheme:          state.appTheme,
+      translateSpeed:    state.translateSpeed,
+      alternativesCount: state.alternativesCount,
+      formality:         state.formality,
+      sourceLang:        state.sourceLang,
+      targetLang:        state.targetLang,
     });
   } catch (e) {
     console.warn('Could not save settings:', e);
@@ -127,11 +160,27 @@ async function saveSettings() {
 function applyStateToUI() {
   els.apiKey.value = state.apiKey;
 
-  const tierRadio = document.querySelector(
-    `input[name="apiTier"][value="${state.apiTier}"]`
-  );
+  // Apply Theme
+  els.html.setAttribute('data-theme', state.appTheme);
+  const themeRadio = document.querySelector(`input[name="appTheme"][value="${state.appTheme}"]`);
+  if (themeRadio) themeRadio.checked = true;
+
+  // Apply Speed Option
+  const speedRadio = document.querySelector(`input[name="translateSpeed"][value="${state.translateSpeed}"]`);
+  if (speedRadio) speedRadio.checked = true;
+
+  // Apply Alternatives Count
+  const altRadio = document.querySelector(`input[name="alternativesCount"][value="${state.alternativesCount}"]`);
+  if (altRadio) altRadio.checked = true;
+
+  // Apply Formality
+  els.formalitySelect.value = state.formality;
+
+  // Apply API Tier
+  const tierRadio = document.querySelector(`input[name="apiTier"][value="${state.apiTier}"]`);
   if (tierRadio) tierRadio.checked = true;
 
+  // Apply Languages
   if ([...els.sourceLang.options].some(o => o.value === state.sourceLang)) {
     els.sourceLang.value = state.sourceLang;
   }
@@ -165,23 +214,34 @@ function getLanguageName(code) {
 // ──────────────────────────────────────────────
 // DeepL API Translation
 // ──────────────────────────────────────────────
-async function translate() {
+async function translate(isAutoTrigger = false) {
   const text = els.sourceText.value.trim();
 
   if (!text) {
-    showToast('请输入要翻译的文本', 'error');
-    els.sourceText.focus();
+    if (!isAutoTrigger) {
+      showToast('请输入要翻译的文本', 'error');
+      els.sourceText.focus();
+    } else {
+      clearResult();
+    }
     return;
   }
 
   if (!state.apiKey) {
-    showToast('请先在设置中输入 DeepL API Key', 'error');
-    openSettings();
-    els.apiKey.focus();
+    if (!isAutoTrigger) {
+      showToast('请先在设置中输入 DeepL API Key', 'error');
+      openSettings();
+      els.apiKey.focus();
+    }
     return;
   }
 
-  if (state.isTranslating) return;
+  // Abort any ongoing translation request
+  if (abortController) {
+    abortController.abort();
+  }
+  abortController = new AbortController();
+
   setTranslating(true);
 
   const baseUrl = state.apiTier === 'pro'
@@ -198,6 +258,17 @@ async function translate() {
     payload.source_lang = state.sourceLang;
   }
 
+  // Formality parameter support (prefer_more / prefer_less)
+  if (state.formality !== 'default') {
+    payload.formality = state.formality;
+  }
+
+  // Alternatives parameter support
+  const count = parseInt(state.alternativesCount, 10);
+  if (count > 0) {
+    payload.alternatives = count;
+  }
+
   try {
     const res = await fetch(baseUrl, {
       method: 'POST',
@@ -206,6 +277,7 @@ async function translate() {
         'Content-Type':  'application/json',
       },
       body: JSON.stringify(payload),
+      signal: abortController.signal,
     });
 
     if (!res.ok) {
@@ -215,8 +287,38 @@ async function translate() {
     const data        = await res.json();
     const translation = data.translations[0];
 
-    // ── Display result ──
+    // ── Display main result ──
     els.resultText.textContent = translation.text;
+
+    // ── Display alternatives if any are returned and requested ──
+    const alternatives = data.translations[0].alternatives || [];
+    if (count > 0 && alternatives.length > 0) {
+      els.alternativesBox.innerHTML = '';
+      alternatives.slice(0, count).forEach(alt => {
+        const altItem = document.createElement('div');
+        altItem.className = 'alternative-item';
+        altItem.title = '点击使用此备选翻译';
+        altItem.innerHTML = `
+          <svg class="alt-icon" viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+            <path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/>
+          </svg>
+          <span class="alt-text">${alt.text}</span>
+        `;
+        
+        // Let user click on any alternative to swap it into the main result
+        altItem.addEventListener('click', () => {
+          const originalMain = els.resultText.textContent;
+          els.resultText.textContent = alt.text;
+          altItem.querySelector('.alt-text').textContent = originalMain;
+        });
+
+        els.alternativesBox.appendChild(altItem);
+      });
+      els.alternativesBox.style.display = 'flex';
+    } else {
+      els.alternativesBox.style.display = 'none';
+      els.alternativesBox.innerHTML = '';
+    }
 
     // ── Show detected language ──
     if (state.sourceLang === 'AUTO' && translation.detected_source_language) {
@@ -232,10 +334,27 @@ async function translate() {
     updateSwapAvailability();
 
   } catch (err) {
+    if (err.name === 'AbortError') {
+      // Quietly ignore aborted requests, as they were superseded by a newer input
+      return;
+    }
     showToast(err.message, 'error');
   } finally {
-    setTranslating(false);
+    // Only turn off translating status if we are not expecting another aborted callback to clear it prematurely
+    if (!abortController || abortController.signal.aborted === false) {
+      setTranslating(false);
+    }
   }
+}
+
+function clearResult() {
+  els.resultText.textContent = '';
+  els.detectedLang.textContent = '';
+  els.alternativesBox.style.display = 'none';
+  els.alternativesBox.innerHTML = '';
+  els.resultSection.classList.remove('visible');
+  state.detectedLang = null;
+  updateSwapAvailability();
 }
 
 function parseApiError(status) {
@@ -278,10 +397,10 @@ function swapLanguages() {
   const translated = els.resultText.textContent;
   if (translated) {
     els.sourceText.value = translated;
-    els.resultText.textContent = '';
-    els.resultSection.classList.remove('visible');
-    els.detectedLang.textContent = '';
+    clearResult();
     updateCharCount();
+    // Auto translate the swapped text
+    translate(true);
   }
 
   // Animate the swap button
@@ -303,17 +422,17 @@ function updateSwapAvailability() {
 // ──────────────────────────────────────────────
 function setTranslating(busy) {
   state.isTranslating = busy;
-  const btnText   = els.translateBtn.querySelector('.btn-text');
-  const btnLoader = els.translateBtn.querySelector('.btn-loader');
+  const btnIcon   = els.translateBtn.querySelector('.trigger-icon');
+  const btnLoader = els.translateBtn.querySelector('.trigger-loader');
 
-  btnText.style.display   = busy ? 'none'   : 'inline';
+  btnIcon.style.display   = busy ? 'none'   : 'block';
   btnLoader.style.display = busy ? 'flex'   : 'none';
   els.translateBtn.disabled = busy;
 }
 
 function updateCharCount() {
   const n = els.sourceText.value.length;
-  els.charCount.textContent = `${n} 字符`;
+  els.charCount.textContent = `${n}`;
 }
 
 function showToast(message, type = 'info') {
@@ -326,13 +445,20 @@ function showToast(message, type = 'info') {
 
 function openSettings() {
   els.settingsPanel.classList.add('open');
-  els.settingsToggle.classList.add('active');
+}
+
+function closeSettings() {
+  els.settingsPanel.classList.remove('open');
 }
 
 function toggleSettings() {
-  const isOpen = els.settingsPanel.classList.toggle('open');
-  els.settingsToggle.classList.toggle('active', isOpen);
-  if (isOpen) els.apiKey.focus();
+  const isOpen = els.settingsPanel.classList.contains('open');
+  if (isOpen) {
+    closeSettings();
+  } else {
+    openSettings();
+    els.apiKey.focus();
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -342,6 +468,55 @@ function bindAllEvents() {
 
   // Settings
   els.settingsToggle.addEventListener('click', toggleSettings);
+  els.closeSettings.addEventListener('click', closeSettings);
+
+  // Close settings when clicking outside
+  document.addEventListener('click', (e) => {
+    if (els.settingsPanel.classList.contains('open') && 
+        !els.settingsPanel.contains(e.target) && 
+        !els.settingsToggle.contains(e.target)) {
+      closeSettings();
+    }
+  });
+
+  // Theme change
+  document.querySelectorAll('input[name="appTheme"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      state.appTheme = e.target.value;
+      els.html.setAttribute('data-theme', state.appTheme);
+      saveSettings();
+    });
+  });
+
+  // Speed change
+  document.querySelectorAll('input[name="translateSpeed"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      state.translateSpeed = e.target.value;
+      saveSettings();
+    });
+  });
+
+  // Alternatives count change
+  document.querySelectorAll('input[name="alternativesCount"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      state.alternativesCount = e.target.value;
+      saveSettings();
+      // If there is already text, trigger a translation refresh with new settings
+      if (els.sourceText.value.trim()) {
+        translate(true);
+      }
+    });
+  });
+
+  // Formality dropdown change
+  els.formalitySelect.addEventListener('change', () => {
+    state.formality = els.formalitySelect.value;
+    saveSettings();
+    // If there is already text, trigger a translation refresh with new settings
+    if (els.sourceText.value.trim()) {
+      translate(true);
+    }
+  });
 
   els.apiKey.addEventListener('input', () => {
     state.apiKey = els.apiKey.value.trim();
@@ -379,17 +554,38 @@ function bindAllEvents() {
   // Swap
   els.swapBtn.addEventListener('click', swapLanguages);
 
-  // Text input
-  els.sourceText.addEventListener('input', updateCharCount);
+  // Text input - handles character count and auto-translate trigger
+  els.sourceText.addEventListener('input', () => {
+    updateCharCount();
+
+    // Reset debounce timer on every key stroke
+    clearTimeout(debounceTimer);
+
+    const text = els.sourceText.value.trim();
+    if (!text) {
+      clearResult();
+      return;
+    }
+
+    // Trigger auto-translate based on current speed setting
+    const delay = SPEED_MAP[state.translateSpeed] || 500;
+    debounceTimer = setTimeout(() => {
+      translate(true);
+    }, delay);
+  });
 
   els.clearBtn.addEventListener('click', () => {
     els.sourceText.value = '';
     updateCharCount();
+    clearResult();
     els.sourceText.focus();
   });
 
-  // Translate
-  els.translateBtn.addEventListener('click', translate);
+  // Translate button (Acts as manual force translation)
+  els.translateBtn.addEventListener('click', () => {
+    clearTimeout(debounceTimer);
+    translate(false);
+  });
 
   // Copy result
   els.copyBtn.addEventListener('click', async () => {
@@ -411,11 +607,12 @@ function bindAllEvents() {
     showToast('已复制到剪贴板');
   });
 
-  // Keyboard shortcut: Ctrl/Cmd + Enter → translate
+  // Keyboard shortcut: Ctrl/Cmd + Enter → manual force translate
   els.sourceText.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
-      translate();
+      clearTimeout(debounceTimer);
+      translate(false);
     }
   });
 }
