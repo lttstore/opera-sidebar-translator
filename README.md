@@ -55,3 +55,7 @@ i18n.js           界面文案（中文 / English）
 theme-init.js     首帧前应用主题
 _locales/         扩展名称与描述的本地化
 ```
+
+## 许可
+
+[MIT](LICENSE)
