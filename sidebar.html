@@ -1,19 +1,17 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="pastel">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Translator</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="theme-init.js"></script>
   <link rel="stylesheet" href="sidebar.css">
 </head>
 <body>
   <div class="app">
 
     <!-- ── Settings Toggle (Top Right) ──────────── -->
-    <button class="settings-toggle" id="settingsToggle" title="设置" aria-label="打开设置">
+    <button class="settings-toggle" id="settingsToggle" type="button" data-i18n-title="settings.title">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
         <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94L14.4 2.81c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41L9.25 5.35c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.22-.07.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
       </svg>
@@ -21,127 +19,211 @@
 
     <!-- ── Settings Modal ──────────── -->
     <div class="settings-modal" id="settingsPanel">
-      <div class="settings-inner">
-        <div class="settings-header">
-          <h3>Preferences</h3>
-          <button class="close-settings" id="closeSettingsBtn" type="button">×</button>
-        </div>
-        
-        <div class="setting-group">
-          <label class="setting-label">Aesthetic Theme</label>
-          <div class="theme-selector">
-            <label class="theme-option theme-minimal" title="极简冷淡">
-              <input type="radio" name="appTheme" value="minimal">
-              <div class="theme-swatch"></div>
-              <span>Minimal</span>
-            </label>
-            <label class="theme-option theme-night" title="深邃夜空">
-              <input type="radio" name="appTheme" value="night">
-              <div class="theme-swatch"></div>
-              <span>Night</span>
-            </label>
-            <label class="theme-option theme-claude" title="人文纸墨">
-              <input type="radio" name="appTheme" value="claude" checked>
-              <div class="theme-swatch"></div>
-              <span>Claude</span>
-            </label>
-          </div>
-        </div>
+      <div class="settings-header">
+        <h3 data-i18n="settings.title">设置</h3>
+        <button class="close-settings" id="closeSettingsBtn" type="button" data-i18n-title="settings.close">×</button>
+      </div>
 
-        <div class="setting-group">
-          <label class="setting-label">Response Speed (Auto-Translate)</label>
-          <div class="speed-selector">
-            <label class="speed-option">
-              <input type="radio" name="translateSpeed" value="fast">
-              <span>快 (400ms)</span>
-            </label>
-            <label class="speed-option">
-              <input type="radio" name="translateSpeed" value="medium" checked>
-              <span>中 (500ms)</span>
-            </label>
-            <label class="speed-option">
-              <input type="radio" name="translateSpeed" value="slow">
-              <span>慢 (700ms)</span>
-            </label>
-          </div>
-        </div>
+      <!-- Appearance -->
+      <h4 class="section-title" data-i18n="sec.appearance">外观</h4>
 
-        <div class="setting-group">
-          <label class="setting-label">Alternative Translations</label>
-          <div class="alternatives-selector">
-            <label class="alt-opt">
-              <input type="radio" name="alternativesCount" value="0" checked>
-              <span>无</span>
-            </label>
-            <label class="alt-opt">
-              <input type="radio" name="alternativesCount" value="1">
-              <span>1 个</span>
-            </label>
-            <label class="alt-opt">
-              <input type="radio" name="alternativesCount" value="2">
-              <span>2 个</span>
-            </label>
-            <label class="alt-opt">
-              <input type="radio" name="alternativesCount" value="3">
-              <span>3 个</span>
-            </label>
-          </div>
+      <div class="setting-group">
+        <span class="setting-label" data-i18n="theme.label">主题</span>
+        <div class="theme-selector">
+          <label class="theme-option theme-auto">
+            <input type="radio" name="appTheme" value="auto">
+            <div class="theme-swatch"></div>
+            <span data-i18n="theme.auto">自动</span>
+          </label>
+          <label class="theme-option theme-minimal">
+            <input type="radio" name="appTheme" value="minimal">
+            <div class="theme-swatch"></div>
+            <span data-i18n="theme.minimal">极简</span>
+          </label>
+          <label class="theme-option theme-night">
+            <input type="radio" name="appTheme" value="night">
+            <div class="theme-swatch"></div>
+            <span data-i18n="theme.night">夜空</span>
+          </label>
+          <label class="theme-option theme-claude">
+            <input type="radio" name="appTheme" value="claude" checked>
+            <div class="theme-swatch"></div>
+            <span data-i18n="theme.claude">纸墨</span>
+          </label>
         </div>
+      </div>
 
-        <div class="setting-group">
-          <label class="setting-label" for="apiKey">DeepL API Key</label>
-          <div class="input-wrapper">
-            <input type="password" id="apiKey" class="setting-input" placeholder="Your DeepL Key…" autocomplete="off" spellcheck="false">
-            <button class="eye-toggle" id="eyeToggle" title="Show/Hide" type="button">
-              <svg class="eye-open" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
-              </svg>
-              <svg class="eye-closed" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="display:none">
-                <path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/>
-              </svg>
-            </button>
-          </div>
-          <div class="api-tier-group">
-            <label class="tier-option"><input type="radio" name="apiTier" value="free" checked><span class="tier-label">Free API</span></label>
-            <label class="tier-option"><input type="radio" name="apiTier" value="pro"><span class="tier-label">Pro API</span></label>
-          </div>
+      <div class="setting-group">
+        <span class="setting-label" data-i18n="uiLang.label">界面语言</span>
+        <div class="segmented">
+          <label class="seg-option">
+            <input type="radio" name="uiLang" value="auto" checked>
+            <span data-i18n="uiLang.auto">跟随系统</span>
+          </label>
+          <label class="seg-option">
+            <input type="radio" name="uiLang" value="zh">
+            <span>中文</span>
+          </label>
+          <label class="seg-option">
+            <input type="radio" name="uiLang" value="en">
+            <span>English</span>
+          </label>
         </div>
+      </div>
+
+      <!-- Translation -->
+      <h4 class="section-title" data-i18n="sec.translation">翻译</h4>
+
+      <div class="setting-group">
+        <span class="setting-label" data-i18n="speed.label">自动翻译延迟</span>
+        <div class="segmented">
+          <label class="seg-option">
+            <input type="radio" name="translateSpeed" value="fast">
+            <span data-i18n="speed.fast">快 (400ms)</span>
+          </label>
+          <label class="seg-option">
+            <input type="radio" name="translateSpeed" value="medium" checked>
+            <span data-i18n="speed.medium">中 (500ms)</span>
+          </label>
+          <label class="seg-option">
+            <input type="radio" name="translateSpeed" value="slow">
+            <span data-i18n="speed.slow">慢 (700ms)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <span class="setting-label" data-i18n="model.label">翻译模型</span>
+        <div class="segmented">
+          <label class="seg-option">
+            <input type="radio" name="modelType" value="default" checked>
+            <span data-i18n="model.default">默认</span>
+          </label>
+          <label class="seg-option">
+            <input type="radio" name="modelType" value="prefer_quality_optimized">
+            <span data-i18n="model.quality">质量优先</span>
+          </label>
+          <label class="seg-option">
+            <input type="radio" name="modelType" value="latency_optimized">
+            <span data-i18n="model.speed">速度优先</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label" for="pairLang" data-i18n="pair.label">互译语言</label>
+        <select id="pairLang" class="setting-select"></select>
+        <p class="setting-hint" data-i18n="pair.hint">源语言为自动检测时，输入内容若已是目标语言，则改译为此语言。</p>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label" for="customInstructions" data-i18n="instr.label">自定义指令</label>
+        <textarea id="customInstructions" class="setting-textarea" rows="3" spellcheck="false" data-i18n-placeholder="instr.placeholder"></textarea>
+        <p class="setting-hint" id="instructionsHint" data-i18n="instr.hint">用英语或目标语言书写，最多 10 条，每条不超过 300 字符。</p>
+      </div>
+
+      <!-- Read aloud -->
+      <h4 class="section-title" data-i18n="sec.speech">朗读</h4>
+
+      <div class="setting-group">
+        <label class="setting-label" for="geminiKey" data-i18n="gemini.label">Gemini API Key</label>
+        <div class="input-wrapper">
+          <input type="password" id="geminiKey" class="setting-input" autocomplete="off" spellcheck="false" data-i18n-placeholder="gemini.placeholder">
+          <button class="field-btn eye-toggle" type="button" data-i18n-title="key.show">
+            <svg class="eye-open" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+            </svg>
+            <svg class="eye-closed" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/>
+            </svg>
+          </button>
+          <button class="field-btn key-clear" type="button" data-clear="geminiKey" data-i18n-title="key.clear">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label" for="ttsVoice" data-i18n="voice.label">Gemini 音色</label>
+        <select id="ttsVoice" class="setting-select"></select>
+      </div>
+
+      <!-- DeepL API -->
+      <h4 class="section-title" data-i18n="sec.api">DeepL API</h4>
+
+      <div class="setting-group">
+        <label class="setting-label" for="apiKey" data-i18n="key.label">DeepL API Key</label>
+        <div class="input-wrapper">
+          <input type="password" id="apiKey" class="setting-input" autocomplete="off" spellcheck="false" data-i18n-placeholder="key.placeholder">
+          <button class="field-btn eye-toggle" type="button" data-i18n-title="key.show">
+            <svg class="eye-open" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+            </svg>
+            <svg class="eye-closed" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/>
+            </svg>
+          </button>
+          <button class="field-btn key-clear" type="button" data-clear="apiKey" data-i18n-title="key.clear">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <p class="setting-hint" id="keyStatus"></p>
       </div>
     </div>
 
     <!-- ── Center Workspace ──────────────────────────── -->
     <main class="workspace">
-      
+
       <!-- Language Pill -->
       <div class="language-pill">
-        <select id="sourceLang" class="lang-select" aria-label="源语言"></select>
-        <button class="swap-btn" id="swapBtn" title="Swap" type="button" aria-label="交换语言">
+        <select id="sourceLang" class="lang-select" data-i18n-aria="lang.source"></select>
+        <button class="swap-btn" id="swapBtn" type="button" data-i18n-title="lang.swap">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M8 3L4 7l4 4"/><path d="M4 7h16"/><path d="M16 21l4-4-4-4"/><path d="M20 17H4"/>
           </svg>
         </button>
-        <select id="targetLang" class="lang-select" aria-label="目标语言"></select>
+        <select id="targetLang" class="lang-select" data-i18n-aria="lang.target"></select>
       </div>
 
       <!-- Translation Stack -->
       <div class="translation-stack">
         <!-- Input -->
         <div class="card input-card">
-          <textarea id="sourceText" class="text-area" rows="4" placeholder="Enter text to translate…"></textarea>
+          <textarea id="sourceText" class="text-area" rows="4" data-i18n-placeholder="input.placeholder"></textarea>
+          <input type="text" id="contextInput" class="context-input" spellcheck="false" hidden data-i18n-placeholder="context.placeholder">
           <div class="card-footer">
             <span class="char-count" id="charCount">0</span>
-            <button class="icon-btn clear-btn" id="clearBtn" title="Clear" type="button">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                <path d="M18 6L6 18M6 6l12 12"/>
-              </svg>
-            </button>
+            <div class="card-actions">
+              <button class="icon-btn" id="contextBtn" type="button" data-i18n-title="context.toggle">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <path d="M4 6h16M4 12h10M4 18h7"/>
+                </svg>
+              </button>
+              <button class="icon-btn speak-btn" id="speakSourceBtn" type="button" data-i18n-title="action.speak">
+                <svg class="ic-speak" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7"/><path d="M18.5 5.5a9 9 0 010 13"/>
+                </svg>
+                <svg class="ic-stop" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2"/>
+                </svg>
+              </button>
+              <button class="icon-btn" id="clearBtn" type="button" data-i18n-title="action.clear">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
 
         <!-- Center Action Button -->
         <div class="action-center">
           <div class="action-row">
-            <button class="translate-trigger" id="translateBtn" type="button" aria-label="Translate">
+            <button class="translate-trigger" id="translateBtn" type="button" data-i18n-title="action.translate">
               <svg class="trigger-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
                 <path d="M2 12l10-10 10 10-1.41 1.41L13 5.83V22h-2V5.83l-7.59 7.58L2 12z"/>
               </svg>
@@ -149,13 +231,11 @@
                 <div class="spinner"></div>
               </div>
             </button>
-            <div class="formality-wrapper">
-              <select id="formalitySelect" class="formality-select" aria-label="语气调节">
-                <option value="default" selected>⚙️ 自动</option>
-                <option value="prefer_more">👔 礼貌</option>
-                <option value="prefer_less">💬 随和</option>
-              </select>
-            </div>
+            <select id="formalitySelect" class="formality-select" data-i18n-aria="formality.label">
+              <option value="default" selected data-i18n="formality.default">默认语气</option>
+              <option value="prefer_more" data-i18n="formality.more">正式</option>
+              <option value="prefer_less" data-i18n="formality.less">随意</option>
+            </select>
           </div>
         </div>
 
@@ -163,14 +243,23 @@
         <div class="card output-card" id="resultSection">
           <div class="detected-lang" id="detectedLang"></div>
           <div class="result-text" id="resultText"></div>
-          <div class="alternatives-box" id="alternativesBox" style="display:none"></div>
           <div class="card-footer">
             <span class="powered-by">DeepL</span>
-            <button class="icon-btn copy-btn" id="copyBtn" title="Copy" type="button">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-              </svg>
-            </button>
+            <div class="card-actions">
+              <button class="icon-btn speak-btn" id="speakResultBtn" type="button" data-i18n-title="action.speak">
+                <svg class="ic-speak" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7"/><path d="M18.5 5.5a9 9 0 010 13"/>
+                </svg>
+                <svg class="ic-stop" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2"/>
+                </svg>
+              </button>
+              <button class="icon-btn" id="copyBtn" type="button" data-i18n-title="action.copy">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -181,6 +270,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
 
-  <script src="sidebar.js"></script>
+  <script type="module" src="sidebar.js"></script>
 </body>
 </html>

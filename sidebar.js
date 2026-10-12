@@ -1,70 +1,51 @@
 /* ============================================================
    Opera Sidebar Translator — Logic
-   DeepL API integration with auto-detect, manual selection,
-   one-click language swap, and persistent settings.
+   DeepL translation with auto-detect, two-way direction,
+   language swap, read aloud, and persistent settings.
    ============================================================ */
 
-// ──────────────────────────────────────────────
-// DeepL Supported Languages
-// ──────────────────────────────────────────────
-const LANGUAGES = [
-  { code: 'AUTO', name: '自动检测',    isAuto: true },
-  { code: 'BG',   name: '保加利亚语' },
-  { code: 'CS',   name: '捷克语' },
-  { code: 'DA',   name: '丹麦语' },
-  { code: 'DE',   name: '德语' },
-  { code: 'EL',   name: '希腊语' },
-  { code: 'EN',   name: '英语' },
-  { code: 'EN-GB',name: '英语 (英式)',  targetOnly: true },
-  { code: 'EN-US',name: '英语 (美式)',  targetOnly: true },
-  { code: 'ES',   name: '西班牙语' },
-  { code: 'ET',   name: '爱沙尼亚语' },
-  { code: 'FI',   name: '芬兰语' },
-  { code: 'FR',   name: '法语' },
-  { code: 'HU',   name: '匈牙利语' },
-  { code: 'ID',   name: '印尼语' },
-  { code: 'IT',   name: '意大利语' },
-  { code: 'JA',   name: '日语' },
-  { code: 'KO',   name: '韩语' },
-  { code: 'LT',   name: '立陶宛语' },
-  { code: 'LV',   name: '拉脱维亚语' },
-  { code: 'NB',   name: '挪威语' },
-  { code: 'NL',   name: '荷兰语' },
-  { code: 'PL',   name: '波兰语' },
-  { code: 'PT',   name: '葡萄牙语' },
-  { code: 'PT-BR',name: '葡萄牙语 (巴西)', targetOnly: true },
-  { code: 'PT-PT',name: '葡萄牙语 (欧洲)', targetOnly: true },
-  { code: 'RO',   name: '罗马尼亚语' },
-  { code: 'RU',   name: '俄语' },
-  { code: 'SK',   name: '斯洛伐克语' },
-  { code: 'SL',   name: '斯洛文尼亚语' },
-  { code: 'SV',   name: '瑞典语' },
-  { code: 'TR',   name: '土耳其语' },
-  { code: 'UK',   name: '乌克兰语' },
-  { code: 'ZH',   name: '中文' },
-];
+import { t, setLang, getLocale, hasString, applyI18n } from './i18n.js';
+import * as deepl from './deepl.js';
+import * as tts from './tts.js';
 
 // ──────────────────────────────────────────────
 // Application State
 // ──────────────────────────────────────────────
 const state = {
-  apiKey:            '',
-  apiTier:           'free',   // 'free' | 'pro'
-  appTheme:          'claude', // 'minimal' | 'night' | 'claude'
-  translateSpeed:    'medium', // 'fast' | 'medium' | 'slow'
-  alternativesCount: '0',      // '0' | '1' | '2' | '3'
-  formality:         'default',// 'default' | 'prefer_more' | 'prefer_less'
-  sourceLang:        'AUTO',
-  targetLang:        'EN',
-  detectedLang:      null,     // detected source language code after translation
-  isTranslating:     false,
+  apiKey:             '',
+  geminiKey:          '',
+  ttsVoice:           'Kore',
+  appTheme:           'claude', // 'auto' | 'minimal' | 'night' | 'claude'
+  lightTheme:         'claude', // light theme used by 'auto'
+  uiLang:             'auto',   // 'auto' | 'zh' | 'en'
+  translateSpeed:     'medium', // 'fast' | 'medium' | 'slow'
+  formality:          'default',// 'default' | 'prefer_more' | 'prefer_less'
+  modelType:          'default',// 'default' | 'prefer_quality_optimized' | 'latency_optimized'
+  customInstructions: '',       // one instruction per line
+  pairLang:           '',       // two-way translation partner of targetLang, '' = off
+  sourceLang:         'AUTO',
+  targetLang:         'EN-US',
+  langVariants:       {},       // last chosen target variant per base language, e.g. { EN: 'EN-GB' }
 };
 
+const PERSISTED_KEYS = Object.keys(state);
+
+// Runtime-only state
+let languages       = deepl.FALLBACK_LANGUAGES;
+let detectedLang    = null;   // detected source language of the current result
+let effectiveTarget = null;   // target language the current result was translated into
+let usage           = null;   // { character_count, character_limit } | 'invalid' | null
+
+const LANGUAGE_CACHE_TTL = 24 * 60 * 60 * 1000;
+const MAX_INSTRUCTIONS = 10;
+const MAX_INSTRUCTION_LENGTH = 300;
+
 // ──────────────────────────────────────────────
-// Debounce & Abort Controller for "Type-as-you-Translate"
+// Debounce & Request tracking for "Type-as-you-Translate"
 // ──────────────────────────────────────────────
 let debounceTimer = null;
 let abortController = null;
+let requestSeq = 0;           // only the latest request may update the UI
 
 const SPEED_MAP = {
   fast: 400,
@@ -78,40 +59,59 @@ const SPEED_MAP = {
 const $ = (id) => document.getElementById(id);
 
 const els = {
-  html:           document.documentElement,
-  settingsToggle: $('settingsToggle'),
-  closeSettings:  $('closeSettingsBtn'),
-  settingsPanel:  $('settingsPanel'),
-  apiKey:         $('apiKey'),
-  eyeToggle:      $('eyeToggle'),
-  sourceLang:     $('sourceLang'),
-  targetLang:     $('targetLang'),
-  swapBtn:        $('swapBtn'),
-  sourceText:     $('sourceText'),
-  charCount:      $('charCount'),
-  clearBtn:       $('clearBtn'),
-  translateBtn:   $('translateBtn'),
-  formalitySelect:$('formalitySelect'),
-  resultSection:  $('resultSection'),
-  detectedLang:   $('detectedLang'),
-  resultText:     $('resultText'),
-  alternativesBox:$('alternativesBox'),
-  copyBtn:        $('copyBtn'),
-  toast:          $('toast'),
+  settingsToggle:  $('settingsToggle'),
+  closeSettings:   $('closeSettingsBtn'),
+  settingsPanel:   $('settingsPanel'),
+  apiKey:          $('apiKey'),
+  keyStatus:       $('keyStatus'),
+  geminiKey:       $('geminiKey'),
+  ttsVoice:        $('ttsVoice'),
+  pairLang:        $('pairLang'),
+  instructions:    $('customInstructions'),
+  instructionsHint:$('instructionsHint'),
+  sourceLang:      $('sourceLang'),
+  targetLang:      $('targetLang'),
+  swapBtn:         $('swapBtn'),
+  sourceText:      $('sourceText'),
+  contextInput:    $('contextInput'),
+  contextBtn:      $('contextBtn'),
+  charCount:       $('charCount'),
+  clearBtn:        $('clearBtn'),
+  speakSourceBtn:  $('speakSourceBtn'),
+  speakResultBtn:  $('speakResultBtn'),
+  translateBtn:    $('translateBtn'),
+  formalitySelect: $('formalitySelect'),
+  resultSection:   $('resultSection'),
+  detectedLang:    $('detectedLang'),
+  resultText:      $('resultText'),
+  copyBtn:         $('copyBtn'),
+  toast:           $('toast'),
 };
 
 // ──────────────────────────────────────────────
 // Initialization
 // ──────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', init);
+
+// Localize before the first paint using the mirrored preference
+setLang(readMirror('uiLang'));
+applyI18n();
+init();
 
 async function init() {
   await loadSettings();
-  populateLanguageSelects();
+  setLang(state.uiLang);
+  applyI18n();
+  applyTheme();
+  tts.VOICES.forEach(name => els.ttsVoice.add(new Option(name, name)));
+  renderLanguageSelects();
   applyStateToUI();
   bindAllEvents();
   updateSwapAvailability();
+  updateSpeakAvailability();
   els.sourceText.focus();
+
+  refreshLanguages();
+  refreshUsage();
 }
 
 // ──────────────────────────────────────────────
@@ -119,138 +119,204 @@ async function init() {
 // ──────────────────────────────────────────────
 async function loadSettings() {
   try {
-    const data = await chrome.storage.local.get([
-      'apiKey', 'apiTier', 'appTheme', 'translateSpeed', 'alternativesCount', 'formality', 'sourceLang', 'targetLang',
-    ]);
-    if (data.apiKey            !== undefined) state.apiKey            = data.apiKey;
-    if (data.apiTier           !== undefined) state.apiTier           = data.apiTier;
-    if (data.appTheme          !== undefined) {
-      // Migrate old themes safely to new equivalents
-      if (data.appTheme === 'pastel') state.appTheme = 'claude';
-      else if (data.appTheme === 'brutalist') state.appTheme = 'night';
-      else state.appTheme = data.appTheme;
+    // Keep stored keys out of reach of content scripts
+    chrome.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' });
+
+    const data = await chrome.storage.local.get([...PERSISTED_KEYS, 'languageCache']);
+    for (const key of PERSISTED_KEYS) {
+      if (data[key] !== undefined) state[key] = data[key];
     }
-    if (data.translateSpeed    !== undefined) state.translateSpeed    = data.translateSpeed;
-    if (data.alternativesCount !== undefined) state.alternativesCount = data.alternativesCount;
-    if (data.formality         !== undefined) state.formality         = data.formality;
-    if (data.sourceLang        !== undefined) state.sourceLang        = data.sourceLang;
-    if (data.targetLang        !== undefined) state.targetLang        = data.targetLang;
+
+    // Migrate old themes safely to new equivalents
+    if (state.appTheme === 'pastel') state.appTheme = 'claude';
+    else if (state.appTheme === 'brutalist') state.appTheme = 'night';
+    if (data.lightTheme === undefined && state.appTheme === 'minimal') state.lightTheme = 'minimal';
+
+    // Bare EN / PT / ZH are no longer valid target languages
+    state.targetLang = deepl.toTargetCode(state.targetLang, state.langVariants);
+
+    if (data.languageCache?.list?.length) languages = data.languageCache.list;
+
+    chrome.storage.local.remove(['apiTier', 'alternativesCount']);
   } catch (e) {
     console.warn('Could not load settings:', e);
   }
 }
 
-async function saveSettings() {
+async function saveSettings(patch) {
+  Object.assign(state, patch);
   try {
-    await chrome.storage.local.set({
-      apiKey:            state.apiKey,
-      apiTier:           state.apiTier,
-      appTheme:          state.appTheme,
-      translateSpeed:    state.translateSpeed,
-      alternativesCount: state.alternativesCount,
-      formality:         state.formality,
-      sourceLang:        state.sourceLang,
-      targetLang:        state.targetLang,
-    });
+    await chrome.storage.local.set(patch);
   } catch (e) {
     console.warn('Could not save settings:', e);
   }
 }
 
+// localStorage mirrors the preferences needed before chrome.storage resolves
+function readMirror(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function writeMirror(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* unavailable */ }
+}
+
+function applyTheme() {
+  writeMirror('appTheme', state.appTheme);
+  writeMirror('lightTheme', state.lightTheme);
+  window.applyTheme();
+}
+
+function checkRadio(name, value) {
+  const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
+  if (radio) radio.checked = true;
+}
+
 function applyStateToUI() {
-  els.apiKey.value = state.apiKey;
+  els.apiKey.value       = state.apiKey;
+  els.geminiKey.value    = state.geminiKey;
+  els.ttsVoice.value     = state.ttsVoice;
+  els.instructions.value = state.customInstructions;
 
-  // Apply Theme
-  els.html.setAttribute('data-theme', state.appTheme);
-  const themeRadio = document.querySelector(`input[name="appTheme"][value="${state.appTheme}"]`);
-  if (themeRadio) themeRadio.checked = true;
+  checkRadio('appTheme', state.appTheme);
+  checkRadio('uiLang', state.uiLang);
+  checkRadio('translateSpeed', state.translateSpeed);
+  checkRadio('modelType', state.modelType);
 
-  // Apply Speed Option
-  const speedRadio = document.querySelector(`input[name="translateSpeed"][value="${state.translateSpeed}"]`);
-  if (speedRadio) speedRadio.checked = true;
-
-  // Apply Alternatives Count
-  const altRadio = document.querySelector(`input[name="alternativesCount"][value="${state.alternativesCount}"]`);
-  if (altRadio) altRadio.checked = true;
-
-  // Apply Formality
   els.formalitySelect.value = state.formality;
 
-  // Apply API Tier
-  const tierRadio = document.querySelector(`input[name="apiTier"][value="${state.apiTier}"]`);
-  if (tierRadio) tierRadio.checked = true;
-
-  // Apply Languages
-  if ([...els.sourceLang.options].some(o => o.value === state.sourceLang)) {
-    els.sourceLang.value = state.sourceLang;
-  }
-  if ([...els.targetLang.options].some(o => o.value === state.targetLang)) {
-    els.targetLang.value = state.targetLang;
-  }
+  updateFormalityAvailability();
+  renderInstructionsHint();
+  renderKeyStatus();
 }
 
 // ──────────────────────────────────────────────
-// Language Select Population
+// Languages
 // ──────────────────────────────────────────────
-function populateLanguageSelects() {
-  // Source: includes AUTO, excludes targetOnly variants
-  LANGUAGES.filter(l => !l.targetOnly).forEach(lang => {
-    const opt = new Option(lang.name, lang.code);
-    els.sourceLang.add(opt);
-  });
-
-  // Target: excludes AUTO and sourceOnly items
-  LANGUAGES.filter(l => !l.isAuto).forEach(lang => {
-    const opt = new Option(lang.name, lang.code);
-    els.targetLang.add(opt);
-  });
-}
+let displayNames = null;
 
 function getLanguageName(code) {
-  const lang = LANGUAGES.find(l => l.code === code);
-  return lang ? lang.name : code;
+  try {
+    const name = displayNames.of(code);
+    if (name && name.toUpperCase() !== code) return name;
+  } catch { /* code unknown to Intl */ }
+  return languages.find(l => l.code === code)?.name || code;
+}
+
+function fillSelect(select, items, value, fallback) {
+  select.replaceChildren(...items.map(item => new Option(item.label, item.code)));
+  select.value = value;
+  if (select.value !== value) select.value = fallback;
+  return select.value;
+}
+
+function renderLanguageSelects() {
+  displayNames = new Intl.DisplayNames([getLocale()], { type: 'language' });
+
+  const toItems = (list) => list
+    .map(l => ({ code: l.code, label: getLanguageName(l.code) }))
+    .sort((a, b) => a.label.localeCompare(b.label, getLocale()));
+
+  const sources = toItems(languages.filter(l => l.source));
+  // Languages with regional or script variants are offered as those variants only
+  const targets = toItems(languages.filter(l => l.target && !deepl.hasVariants(l.code)));
+
+  state.sourceLang = fillSelect(els.sourceLang,
+    [{ code: 'AUTO', label: t('lang.auto') }, ...sources], state.sourceLang, 'AUTO');
+  state.targetLang = fillSelect(els.targetLang, targets, state.targetLang, 'EN-US');
+  state.pairLang = fillSelect(els.pairLang,
+    [{ code: '', label: t('pair.off') }, ...targets], state.pairLang, '');
+}
+
+function hasFeature(code, feature) {
+  return languages.find(l => l.code === code)?.features.includes(feature) ?? false;
+}
+
+function updateFormalityAvailability() {
+  els.formalitySelect.disabled = !hasFeature(state.targetLang, 'formality');
+}
+
+// Refreshes the language list from DeepL at most once a day
+async function refreshLanguages(force = false) {
+  if (!state.apiKey) return;
+  try {
+    if (!force) {
+      const { languageCache } = await chrome.storage.local.get('languageCache');
+      if (languageCache && Date.now() - languageCache.ts < LANGUAGE_CACHE_TTL) return;
+    }
+    const list = await deepl.fetchLanguages(state.apiKey);
+    if (!list.length) return;
+
+    languages = list;
+    chrome.storage.local.set({ languageCache: { ts: Date.now(), list } });
+    renderLanguageSelects();
+    updateFormalityAvailability();
+  } catch (e) {
+    console.warn('Could not refresh languages:', e);
+  }
+}
+
+// ──────────────────────────────────────────────
+// API Key status & usage
+// ──────────────────────────────────────────────
+async function refreshUsage() {
+  usage = null;
+  renderKeyStatus();
+  if (!state.apiKey) return;
+
+  const key = state.apiKey;
+  try {
+    const data = await deepl.fetchUsage(key);
+    if (key === state.apiKey) usage = data;
+  } catch (err) {
+    if (key === state.apiKey && err.status === 403) usage = 'invalid';
+  }
+  renderKeyStatus();
+}
+
+function renderKeyStatus() {
+  els.keyStatus.classList.toggle('warn', usage === 'invalid');
+
+  if (!state.apiKey) {
+    els.keyStatus.textContent = '';
+  } else if (usage === 'invalid') {
+    els.keyStatus.textContent = t('key.invalid');
+  } else {
+    const tier = t(deepl.isFreeKey(state.apiKey) ? 'key.free' : 'key.pro');
+    els.keyStatus.textContent = usage
+      ? t('key.usage', {
+          tier,
+          used:  usage.character_count.toLocaleString(getLocale()),
+          limit: usage.character_limit.toLocaleString(getLocale()),
+        })
+      : tier;
+  }
+}
+
+// ──────────────────────────────────────────────
+// Custom instructions
+// ──────────────────────────────────────────────
+function parseInstructions() {
+  const lines = state.customInstructions.split('\n').map(l => l.trim()).filter(Boolean);
+  const valid = lines.filter(l => l.length <= MAX_INSTRUCTION_LENGTH).slice(0, MAX_INSTRUCTIONS);
+  return { valid, dropped: lines.length - valid.length };
+}
+
+function renderInstructionsHint() {
+  const { dropped } = parseInstructions();
+  els.instructionsHint.classList.toggle('warn', dropped > 0);
+  els.instructionsHint.textContent = dropped > 0
+    ? t('instr.dropped', { n: dropped })
+    : t('instr.hint');
 }
 
 // ──────────────────────────────────────────────
 // DeepL API Translation
 // ──────────────────────────────────────────────
-async function translate(isAutoTrigger = false) {
-  const text = els.sourceText.value.trim();
-
-  if (!text) {
-    if (!isAutoTrigger) {
-      showToast('请输入要翻译的文本', 'error');
-      els.sourceText.focus();
-    } else {
-      clearResult();
-    }
-    return;
-  }
-
-  if (!state.apiKey) {
-    if (!isAutoTrigger) {
-      showToast('请先在设置中输入 DeepL API Key', 'error');
-      openSettings();
-      els.apiKey.focus();
-    }
-    return;
-  }
-
-  // Abort any ongoing translation request
-  if (abortController) {
-    abortController.abort();
-  }
-  abortController = new AbortController();
-
-  setTranslating(true);
-
-  const baseUrl = state.apiTier === 'pro'
-    ? 'https://api.deepl.com/v2/translate'
-    : 'https://api-free.deepl.com/v2/translate';
-
+function buildPayload(text, target) {
   const payload = {
-    text:       [text],
-    target_lang: state.targetLang,
+    text:        [text],
+    target_lang: target,
   };
 
   // Omit source_lang to trigger DeepL auto-detection
@@ -263,142 +329,177 @@ async function translate(isAutoTrigger = false) {
     payload.formality = state.formality;
   }
 
-  // Alternatives parameter support
-  const count = parseInt(state.alternativesCount, 10);
-  if (count > 0) {
-    payload.alternatives = count;
+  if (state.modelType !== 'default') {
+    payload.model_type = state.modelType;
   }
 
+  const context = els.contextInput.value.trim();
+  if (context) {
+    payload.context = context;
+  }
+
+  const instructions = parseInstructions().valid;
+  if (instructions.length && hasFeature(target, 'custom_instructions')) {
+    payload.custom_instructions = instructions;
+  }
+
+  return payload;
+}
+
+async function translate(isAutoTrigger = false) {
+  const text = els.sourceText.value.trim();
+
+  if (!text) {
+    if (!isAutoTrigger) {
+      showToast(t('toast.empty'), 'error');
+      els.sourceText.focus();
+    } else {
+      clearResult();
+    }
+    return;
+  }
+
+  if (!state.apiKey) {
+    if (!isAutoTrigger) {
+      showToast(t('toast.noKey'), 'error');
+      openSettings();
+      els.apiKey.focus();
+    }
+    return;
+  }
+
+  // Abort any ongoing translation request
+  abortController?.abort();
+  abortController = new AbortController();
+  const { signal } = abortController;
+  const seq = ++requestSeq;
+
+  setTranslating(true);
+
   try {
-    const res = await fetch(baseUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `DeepL-Auth-Key ${state.apiKey}`,
-        'Content-Type':  'application/json',
-      },
-      body: JSON.stringify(payload),
-      signal: abortController.signal,
-    });
+    // Two-way translation: text already in the target language goes to its partner instead
+    const partner = state.sourceLang === 'AUTO'
+      && state.pairLang
+      && deepl.baseOf(state.pairLang) !== deepl.baseOf(state.targetLang)
+      && state.pairLang;
 
-    if (!res.ok) {
-      throw new Error(parseApiError(res.status));
+    let target = state.targetLang;
+    if (partner && deepl.guessLanguage(text, target, partner) === target) {
+      target = partner;
     }
 
-    const data        = await res.json();
-    const translation = data.translations[0];
+    let translation = await deepl.translate(state.apiKey, buildPayload(text, target), signal);
 
-    // ── Display main result ──
+    // The script-based guess is not always possible (or right); DeepL's detection decides
+    if (partner && translation.detected_source_language === deepl.baseOf(target)) {
+      target = target === partner ? state.targetLang : partner;
+      translation = await deepl.translate(state.apiKey, buildPayload(text, target), signal);
+    }
+
+    if (seq !== requestSeq) return;
+
     els.resultText.textContent = translation.text;
+    effectiveTarget = target;
+    detectedLang = state.sourceLang === 'AUTO'
+      ? (translation.detected_source_language || null)
+      : null;
 
-    // ── Display alternatives if any are returned and requested ──
-    const alternatives = data.translations[0].alternatives || [];
-    if (count > 0 && alternatives.length > 0) {
-      els.alternativesBox.innerHTML = '';
-      alternatives.slice(0, count).forEach(alt => {
-        const altItem = document.createElement('div');
-        altItem.className = 'alternative-item';
-        altItem.title = '点击使用此备选翻译';
-        altItem.innerHTML = `
-          <svg class="alt-icon" viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
-            <path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/>
-          </svg>
-          <span class="alt-text">${alt.text}</span>
-        `;
-        
-        // Let user click on any alternative to swap it into the main result
-        altItem.addEventListener('click', () => {
-          const originalMain = els.resultText.textContent;
-          els.resultText.textContent = alt.text;
-          altItem.querySelector('.alt-text').textContent = originalMain;
-        });
-
-        els.alternativesBox.appendChild(altItem);
-      });
-      els.alternativesBox.style.display = 'flex';
-    } else {
-      els.alternativesBox.style.display = 'none';
-      els.alternativesBox.innerHTML = '';
-    }
-
-    // ── Show detected language ──
-    if (state.sourceLang === 'AUTO' && translation.detected_source_language) {
-      state.detectedLang = translation.detected_source_language;
-      els.detectedLang.textContent =
-        `检测到: ${getLanguageName(translation.detected_source_language)}`;
-    } else {
-      state.detectedLang = null;
-      els.detectedLang.textContent = '';
-    }
-
+    renderDetectedLang();
     els.resultSection.classList.add('visible');
     updateSwapAvailability();
+    updateSpeakAvailability();
 
   } catch (err) {
-    if (err.name === 'AbortError') {
-      // Quietly ignore aborted requests, as they were superseded by a newer input
-      return;
-    }
-    showToast(err.message, 'error');
+    // Aborted or superseded requests are ignored quietly
+    if (err.name === 'AbortError' || seq !== requestSeq) return;
+    showToast(describeError(err), 'error');
   } finally {
-    // Only turn off translating status if we are not expecting another aborted callback to clear it prematurely
-    if (!abortController || abortController.signal.aborted === false) {
-      setTranslating(false);
-    }
+    if (seq === requestSeq) setTranslating(false);
+  }
+}
+
+function cancelTranslation() {
+  clearTimeout(debounceTimer);
+  abortController?.abort();
+  requestSeq++;
+  setTranslating(false);
+}
+
+function scheduleTranslate() {
+  clearTimeout(debounceTimer);
+  const delay = SPEED_MAP[state.translateSpeed] || 500;
+  debounceTimer = setTimeout(() => translate(true), delay);
+}
+
+// Re-run the translation after a setting that affects the result has changed
+function retranslate() {
+  if (els.sourceText.value.trim()) {
+    clearTimeout(debounceTimer);
+    translate(true);
+  }
+}
+
+function renderDetectedLang() {
+  if (!detectedLang) {
+    els.detectedLang.textContent = '';
+  } else if (effectiveTarget !== state.targetLang) {
+    els.detectedLang.textContent = t('result.direction', {
+      from: getLanguageName(detectedLang),
+      to:   getLanguageName(effectiveTarget),
+    });
+  } else {
+    els.detectedLang.textContent = t('result.detected', { lang: getLanguageName(detectedLang) });
   }
 }
 
 function clearResult() {
+  cancelTranslation();
   els.resultText.textContent = '';
-  els.detectedLang.textContent = '';
-  els.alternativesBox.style.display = 'none';
-  els.alternativesBox.innerHTML = '';
   els.resultSection.classList.remove('visible');
-  state.detectedLang = null;
+  detectedLang = null;
+  effectiveTarget = null;
+  renderDetectedLang();
   updateSwapAvailability();
+  updateSpeakAvailability();
 }
 
-function parseApiError(status) {
-  switch (status) {
-    case 400: return '请求参数错误，请检查文本内容';
-    case 403: return 'API Key 无效或权限不足';
-    case 413: return '文本过长，请缩短后重试';
-    case 429: return '请求过于频繁，请稍后再试';
-    case 456: return '已达到配额上限';
-    case 503: return 'DeepL 服务暂时不可用，请稍后重试';
-    default:  return `请求失败 (${status})`;
-  }
+function describeError(err) {
+  if (!(err instanceof deepl.DeepLError)) return t('err.network');
+
+  const key = `err.${err.status}`;
+  const summary = hasString(key) ? t(key) : t('err.generic', { status: err.status });
+  return err.detail ? `${summary} — ${err.detail}` : summary;
 }
 
 // ──────────────────────────────────────────────
 // Language Swap
 // ──────────────────────────────────────────────
+function hasOption(select, value) {
+  return [...select.options].some(o => o.value === value);
+}
+
 function swapLanguages() {
-  let newSource, newTarget;
+  const from = state.sourceLang === 'AUTO' ? detectedLang : state.sourceLang;
+  if (!from) return;
 
-  if (state.sourceLang === 'AUTO') {
-    // With auto-detect: swap to detected→target becomes source, old target→new target
-    if (!state.detectedLang) return;
-    newSource = state.targetLang;
-    newTarget = state.detectedLang;
-  } else {
-    // Normal swap
-    newSource = state.targetLang;
-    newTarget = state.sourceLang;
-  }
+  const newTarget = deepl.toTargetCode(from, state.langVariants);
+  if (!hasOption(els.targetLang, newTarget)) return;
 
-  state.sourceLang   = newSource;
-  state.targetLang   = newTarget;
-  state.detectedLang = null;
+  let newSource = deepl.toSourceCode(effectiveTarget || state.targetLang);
+  if (!hasOption(els.sourceLang, newSource)) newSource = 'AUTO';
 
-  els.sourceLang.value = state.sourceLang;
-  els.targetLang.value = state.targetLang;
+  els.sourceLang.value = newSource;
+  els.targetLang.value = newTarget;
+  saveSettings({ sourceLang: newSource, targetLang: newTarget });
+  updateFormalityAvailability();
 
   // Move result text into input for re-translation context
   const translated = els.resultText.textContent;
+  clearResult();
   if (translated) {
     els.sourceText.value = translated;
-    clearResult();
     updateCharCount();
+    updateSpeakAvailability();
     // Auto translate the swapped text
     translate(true);
   }
@@ -408,20 +509,53 @@ function swapLanguages() {
   setTimeout(() => els.swapBtn.classList.remove('rotating'), 400);
 
   updateSwapAvailability();
-  saveSettings();
 }
 
 function updateSwapAvailability() {
   // Disable when source is AUTO and no translation has been done yet
-  const canSwap = !(state.sourceLang === 'AUTO' && !state.detectedLang);
+  const canSwap = !(state.sourceLang === 'AUTO' && !detectedLang);
   els.swapBtn.disabled = !canSwap;
+}
+
+// ──────────────────────────────────────────────
+// Read Aloud
+// ──────────────────────────────────────────────
+let speakingBtn = null;
+
+async function toggleSpeak(btn, text, lang) {
+  const wasSpeaking = speakingBtn === btn;
+  tts.stop();
+  if (wasSpeaking || !text) return;
+
+  speakingBtn = btn;
+  try {
+    await tts.speak({
+      text,
+      lang,
+      geminiKey: state.geminiKey,
+      voice:     state.ttsVoice,
+      onState:   (s) => { btn.dataset.state = s; },
+      onFallback: (err) => showToast(t('toast.ttsFallback', {
+        reason: err.name === 'TimeoutError' ? t('tts.timeout') : err.message,
+      }), 'error'),
+    });
+  } catch (err) {
+    showToast(t(err.name === 'NoVoiceError' ? 'toast.noVoice' : 'toast.ttsFailed'), 'error');
+  } finally {
+    delete btn.dataset.state;
+    if (speakingBtn === btn) speakingBtn = null;
+  }
+}
+
+function updateSpeakAvailability() {
+  els.speakSourceBtn.disabled = !els.sourceText.value.trim();
+  els.speakResultBtn.disabled = !els.resultText.textContent;
 }
 
 // ──────────────────────────────────────────────
 // UI Helpers
 // ──────────────────────────────────────────────
 function setTranslating(busy) {
-  state.isTranslating = busy;
   const btnIcon   = els.translateBtn.querySelector('.trigger-icon');
   const btnLoader = els.translateBtn.querySelector('.trigger-loader');
 
@@ -449,6 +583,8 @@ function openSettings() {
 
 function closeSettings() {
   els.settingsPanel.classList.remove('open');
+  commitKey(els.apiKey, 'apiKey');
+  commitKey(els.geminiKey, 'geminiKey');
 }
 
 function toggleSettings() {
@@ -457,8 +593,35 @@ function toggleSettings() {
     closeSettings();
   } else {
     openSettings();
-    els.apiKey.focus();
   }
+}
+
+// Persists a key field once editing is finished, rather than on every keystroke
+async function commitKey(input, field) {
+  const value = input.value.trim();
+  if (value === state[field]) return;
+
+  if (value) {
+    await saveSettings({ [field]: value });
+  } else {
+    state[field] = '';
+    try {
+      await chrome.storage.local.remove(field);
+    } catch (e) {
+      console.warn('Could not clear key:', e);
+    }
+  }
+
+  if (field === 'apiKey') {
+    refreshUsage();
+    refreshLanguages(true);
+  }
+}
+
+function bindRadios(name, onChange) {
+  document.querySelectorAll(`input[name="${name}"]`).forEach(radio => {
+    radio.addEventListener('change', (e) => onChange(e.target.value));
+  });
 }
 
 // ──────────────────────────────────────────────
@@ -470,85 +633,115 @@ function bindAllEvents() {
   els.settingsToggle.addEventListener('click', toggleSettings);
   els.closeSettings.addEventListener('click', closeSettings);
 
-  // Close settings when clicking outside
+  // Close settings when clicking outside or pressing Escape
   document.addEventListener('click', (e) => {
-    if (els.settingsPanel.classList.contains('open') && 
-        !els.settingsPanel.contains(e.target) && 
+    if (els.settingsPanel.classList.contains('open') &&
+        !els.settingsPanel.contains(e.target) &&
         !els.settingsToggle.contains(e.target)) {
       closeSettings();
     }
   });
 
-  // Theme change
-  document.querySelectorAll('input[name="appTheme"]').forEach(radio => {
-    radio.addEventListener('change', (e) => {
-      state.appTheme = e.target.value;
-      els.html.setAttribute('data-theme', state.appTheme);
-      saveSettings();
-    });
-  });
-
-  // Speed change
-  document.querySelectorAll('input[name="translateSpeed"]').forEach(radio => {
-    radio.addEventListener('change', (e) => {
-      state.translateSpeed = e.target.value;
-      saveSettings();
-    });
-  });
-
-  // Alternatives count change
-  document.querySelectorAll('input[name="alternativesCount"]').forEach(radio => {
-    radio.addEventListener('change', (e) => {
-      state.alternativesCount = e.target.value;
-      saveSettings();
-      // If there is already text, trigger a translation refresh with new settings
-      if (els.sourceText.value.trim()) {
-        translate(true);
-      }
-    });
-  });
-
-  // Formality dropdown change
-  els.formalitySelect.addEventListener('change', () => {
-    state.formality = els.formalitySelect.value;
-    saveSettings();
-    // If there is already text, trigger a translation refresh with new settings
-    if (els.sourceText.value.trim()) {
-      translate(true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && els.settingsPanel.classList.contains('open')) {
+      closeSettings();
+      els.settingsToggle.focus();
     }
   });
 
-  els.apiKey.addEventListener('input', () => {
-    state.apiKey = els.apiKey.value.trim();
-    saveSettings();
+  // Theme change
+  bindRadios('appTheme', (value) => {
+    const patch = { appTheme: value };
+    if (value === 'minimal' || value === 'claude') patch.lightTheme = value;
+    saveSettings(patch);
+    applyTheme();
   });
 
-  els.eyeToggle.addEventListener('click', () => {
-    const show = els.apiKey.type === 'password';
-    els.apiKey.type = show ? 'text' : 'password';
-    els.eyeToggle.querySelector('.eye-open').style.display   = show ? 'none'  : 'block';
-    els.eyeToggle.querySelector('.eye-closed').style.display = show ? 'block' : 'none';
+  // Interface language change
+  bindRadios('uiLang', (value) => {
+    saveSettings({ uiLang: value });
+    writeMirror('uiLang', value);
+    setLang(value);
+    applyI18n();
+    renderLanguageSelects();
+    renderDetectedLang();
+    renderInstructionsHint();
+    renderKeyStatus();
   });
 
-  document.querySelectorAll('input[name="apiTier"]').forEach(radio => {
-    radio.addEventListener('change', (e) => {
-      state.apiTier = e.target.value;
-      saveSettings();
+  // Speed change
+  bindRadios('translateSpeed', (value) => saveSettings({ translateSpeed: value }));
+
+  // Options below change the translation itself, so refresh the current result
+  bindRadios('modelType', (value) => {
+    saveSettings({ modelType: value });
+    retranslate();
+  });
+
+  els.pairLang.addEventListener('change', () => {
+    saveSettings({ pairLang: els.pairLang.value });
+    retranslate();
+  });
+
+  els.instructions.addEventListener('input', () => {
+    state.customInstructions = els.instructions.value;
+    renderInstructionsHint();
+  });
+  els.instructions.addEventListener('change', () => {
+    saveSettings({ customInstructions: els.instructions.value });
+    retranslate();
+  });
+
+  els.formalitySelect.addEventListener('change', () => {
+    saveSettings({ formality: els.formalitySelect.value });
+    retranslate();
+  });
+
+  // API keys
+  els.apiKey.addEventListener('change', () => commitKey(els.apiKey, 'apiKey'));
+  els.geminiKey.addEventListener('change', () => commitKey(els.geminiKey, 'geminiKey'));
+  window.addEventListener('pagehide', closeSettings);
+
+  document.querySelectorAll('.eye-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = btn.parentElement.querySelector('input');
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.classList.toggle('revealed', show);
     });
   });
 
+  document.querySelectorAll('.key-clear').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = $(btn.dataset.clear);
+      input.value = '';
+      commitKey(input, btn.dataset.clear);
+      input.focus();
+    });
+  });
+
+  els.ttsVoice.addEventListener('change', () => saveSettings({ ttsVoice: els.ttsVoice.value }));
+
   // Language selectors
   els.sourceLang.addEventListener('change', () => {
-    state.sourceLang   = els.sourceLang.value;
-    state.detectedLang = null;
-    els.detectedLang.textContent = '';
+    saveSettings({ sourceLang: els.sourceLang.value });
+    detectedLang = null;
+    renderDetectedLang();
     updateSwapAvailability();
-    saveSettings();
+    retranslate();
   });
 
   els.targetLang.addEventListener('change', () => {
-    state.targetLang = els.targetLang.value;
-    saveSettings();
+    const target = els.targetLang.value;
+    const base = deepl.baseOf(target);
+    const patch = { targetLang: target };
+    // Remember the chosen variant so swapping back restores it
+    if (deepl.hasVariants(base)) {
+      patch.langVariants = { ...state.langVariants, [base]: target };
+    }
+    saveSettings(patch);
+    updateFormalityAvailability();
+    retranslate();
   });
 
   // Swap
@@ -558,20 +751,25 @@ function bindAllEvents() {
   els.sourceText.addEventListener('input', () => {
     updateCharCount();
 
-    // Reset debounce timer on every key stroke
-    clearTimeout(debounceTimer);
-
-    const text = els.sourceText.value.trim();
-    if (!text) {
+    if (!els.sourceText.value.trim()) {
       clearResult();
       return;
     }
 
+    updateSpeakAvailability();
     // Trigger auto-translate based on current speed setting
-    const delay = SPEED_MAP[state.translateSpeed] || 500;
-    debounceTimer = setTimeout(() => {
-      translate(true);
-    }, delay);
+    scheduleTranslate();
+  });
+
+  // Context
+  els.contextBtn.addEventListener('click', () => {
+    els.contextInput.hidden = !els.contextInput.hidden;
+    if (!els.contextInput.hidden) els.contextInput.focus();
+  });
+
+  els.contextInput.addEventListener('input', () => {
+    els.contextBtn.classList.toggle('active', !!els.contextInput.value.trim());
+    if (els.sourceText.value.trim()) scheduleTranslate();
   });
 
   els.clearBtn.addEventListener('click', () => {
@@ -579,6 +777,16 @@ function bindAllEvents() {
     updateCharCount();
     clearResult();
     els.sourceText.focus();
+  });
+
+  // Read aloud
+  els.speakSourceBtn.addEventListener('click', () => {
+    const lang = state.sourceLang === 'AUTO' ? detectedLang : state.sourceLang;
+    toggleSpeak(els.speakSourceBtn, els.sourceText.value.trim(), lang);
+  });
+
+  els.speakResultBtn.addEventListener('click', () => {
+    toggleSpeak(els.speakResultBtn, els.resultText.textContent, effectiveTarget || state.targetLang);
   });
 
   // Translate button (Acts as manual force translation)
@@ -604,7 +812,7 @@ function bindAllEvents() {
       document.execCommand('copy');
       document.body.removeChild(ta);
     }
-    showToast('已复制到剪贴板');
+    showToast(t('toast.copied'));
   });
 
   // Keyboard shortcut: Ctrl/Cmd + Enter → manual force translate
@@ -616,3 +824,4 @@ function bindAllEvents() {
     }
   });
 }
+
