@@ -5,7 +5,7 @@
 const STRINGS = {
   zh: {
     'settings.title':      '设置',
-    'settings.close':      '关闭',
+    'settings.back':       '返回',
     'sec.appearance':      '外观',
     'sec.translation':     '翻译',
     'sec.speech':          '朗读',
@@ -45,7 +45,9 @@ const STRINGS = {
     'key.clear':           '清除',
     'key.free':            'Free API',
     'key.pro':             'Pro API',
-    'key.usage':           '{tier} · 已用 {used} / {limit} 字符',
+    'key.usage':           '{tier} · 已用 {used} / {limit} 字符（{pct}）',
+    'usage.short':         '已用 {used} · 剩余 {left}',
+    'usage.full':          'DeepL Free：已用 {used} / {limit} 字符，剩余 {left}',
     'key.invalid':         'API Key 无效',
 
     'lang.auto':           '自动检测',
@@ -88,7 +90,7 @@ const STRINGS = {
 
   en: {
     'settings.title':      'Settings',
-    'settings.close':      'Close',
+    'settings.back':       'Back',
     'sec.appearance':      'Appearance',
     'sec.translation':     'Translation',
     'sec.speech':          'Read aloud',
@@ -128,7 +130,9 @@ const STRINGS = {
     'key.clear':           'Clear',
     'key.free':            'Free API',
     'key.pro':             'Pro API',
-    'key.usage':           '{tier} · {used} / {limit} characters used',
+    'key.usage':           '{tier} · {used} / {limit} characters used ({pct})',
+    'usage.short':         '{used} used · {left} left',
+    'usage.full':          'DeepL Free: {used} / {limit} characters used, {left} left',
     'key.invalid':         'Invalid API key',
 
     'lang.auto':           'Detect language',

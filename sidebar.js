@@ -59,9 +59,14 @@ const SPEED_MAP = {
 const $ = (id) => document.getElementById(id);
 
 const els = {
+  mainView:        $('mainView'),
   settingsToggle:  $('settingsToggle'),
-  closeSettings:   $('closeSettingsBtn'),
+  backBtn:         $('backBtn'),
   settingsPanel:   $('settingsPanel'),
+  usagePill:       $('usagePill'),
+  usageText:       $('usageText'),
+  usageFill:       $('usageFill'),
+  usagePct:        $('usagePct'),
   apiKey:          $('apiKey'),
   keyStatus:       $('keyStatus'),
   geminiKey:       $('geminiKey'),
@@ -259,9 +264,12 @@ async function refreshLanguages(force = false) {
 // ──────────────────────────────────────────────
 // API Key status & usage
 // ──────────────────────────────────────────────
-async function refreshUsage() {
-  usage = null;
-  renderKeyStatus();
+// keep: leave the last figures on screen while refreshing the same key
+async function refreshUsage(keep = false) {
+  if (!keep) {
+    usage = null;
+    renderKeyStatus();
+  }
   if (!state.apiKey) return;
 
   const key = state.apiKey;
@@ -274,7 +282,52 @@ async function refreshUsage() {
   renderKeyStatus();
 }
 
+// Refreshes the quota shortly after translating, coalescing bursts of requests
+let usageTimer = null;
+function scheduleUsageRefresh() {
+  if (!deepl.isFreeKey(state.apiKey)) return;
+  clearTimeout(usageTimer);
+  usageTimer = setTimeout(() => refreshUsage(true), 3000);
+}
+
+function usageRatio() {
+  if (!usage || usage === 'invalid' || !(usage.character_limit > 0)) return null;
+  return Math.min(usage.character_count / usage.character_limit, 1);
+}
+
+function formatPercent(ratio) {
+  // Avoid showing 0% once anything has been used
+  if (ratio > 0 && ratio < 0.001) return `<${(0.001).toLocaleString(getLocale(), { style: 'percent', minimumFractionDigits: 1 })}`;
+  return ratio.toLocaleString(getLocale(), { style: 'percent', maximumFractionDigits: 1 });
+}
+
+function usageLevel(ratio) {
+  if (ratio >= 0.95) return 'crit';
+  if (ratio >= 0.8)  return 'high';
+  if (ratio >= 0.5)  return 'mid';
+  return 'low';
+}
+
+function renderUsagePill() {
+  const ratio = usageRatio();
+  const show = ratio !== null && deepl.isFreeKey(state.apiKey);
+  els.usagePill.hidden = !show;
+  if (!show) return;
+
+  const { character_count: used, character_limit: limit } = usage;
+  const left = Math.max(limit - used, 0);
+  const compact = new Intl.NumberFormat(getLocale(), { notation: 'compact', maximumFractionDigits: 1 });
+  const full = (n) => n.toLocaleString(getLocale());
+
+  els.usagePill.dataset.level = usageLevel(ratio);
+  els.usageText.textContent = t('usage.short', { used: compact.format(used), left: compact.format(left) });
+  els.usagePct.textContent = formatPercent(ratio);
+  els.usageFill.style.width = `${ratio * 100}%`;
+  els.usagePill.title = t('usage.full', { used: full(used), left: full(left), limit: full(limit) });
+}
+
 function renderKeyStatus() {
+  renderUsagePill();
   els.keyStatus.classList.toggle('warn', usage === 'invalid');
 
   if (!state.apiKey) {
@@ -288,6 +341,7 @@ function renderKeyStatus() {
           tier,
           used:  usage.character_count.toLocaleString(getLocale()),
           limit: usage.character_limit.toLocaleString(getLocale()),
+          pct:   formatPercent(usageRatio() ?? 0),
         })
       : tier;
   }
@@ -405,6 +459,7 @@ async function translate(isAutoTrigger = false) {
       : null;
 
     renderDetectedLang();
+    scheduleUsageRefresh();
     els.resultSection.classList.add('visible');
     updateSwapAvailability();
     updateSpeakAvailability();
@@ -577,23 +632,34 @@ function showToast(message, type = 'info') {
   showToast._t = setTimeout(() => els.toast.classList.remove('show'), 3500);
 }
 
+// Settings is a page of its own; the main page's scroll position is restored on return
+let mainScrollY = 0;
+
+function isSettingsOpen() {
+  return !els.settingsPanel.hidden;
+}
+
 function openSettings() {
-  els.settingsPanel.classList.add('open');
+  if (isSettingsOpen()) return;
+  mainScrollY = window.scrollY;
+  els.mainView.hidden = true;
+  els.settingsPanel.hidden = false;
+  window.scrollTo(0, 0);
+  els.backBtn.focus({ preventScroll: true });
 }
 
 function closeSettings() {
-  els.settingsPanel.classList.remove('open');
-  commitKey(els.apiKey, 'apiKey');
-  commitKey(els.geminiKey, 'geminiKey');
+  commitKeys();
+  if (!isSettingsOpen()) return;
+  els.settingsPanel.hidden = true;
+  els.mainView.hidden = false;
+  window.scrollTo(0, mainScrollY);
+  els.settingsToggle.focus({ preventScroll: true });
 }
 
-function toggleSettings() {
-  const isOpen = els.settingsPanel.classList.contains('open');
-  if (isOpen) {
-    closeSettings();
-  } else {
-    openSettings();
-  }
+function commitKeys() {
+  commitKey(els.apiKey, 'apiKey');
+  commitKey(els.geminiKey, 'geminiKey');
 }
 
 // Persists a key field once editing is finished, rather than on every keystroke
@@ -630,23 +696,12 @@ function bindRadios(name, onChange) {
 function bindAllEvents() {
 
   // Settings
-  els.settingsToggle.addEventListener('click', toggleSettings);
-  els.closeSettings.addEventListener('click', closeSettings);
+  els.settingsToggle.addEventListener('click', openSettings);
+  els.backBtn.addEventListener('click', closeSettings);
 
-  // Close settings when clicking outside or pressing Escape
-  document.addEventListener('click', (e) => {
-    if (els.settingsPanel.classList.contains('open') &&
-        !els.settingsPanel.contains(e.target) &&
-        !els.settingsToggle.contains(e.target)) {
-      closeSettings();
-    }
-  });
-
+  // Escape goes back to the main page
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && els.settingsPanel.classList.contains('open')) {
-      closeSettings();
-      els.settingsToggle.focus();
-    }
+    if (e.key === 'Escape' && isSettingsOpen()) closeSettings();
   });
 
   // Theme change
@@ -700,7 +755,7 @@ function bindAllEvents() {
   // API keys
   els.apiKey.addEventListener('change', () => commitKey(els.apiKey, 'apiKey'));
   els.geminiKey.addEventListener('change', () => commitKey(els.geminiKey, 'geminiKey'));
-  window.addEventListener('pagehide', closeSettings);
+  window.addEventListener('pagehide', commitKeys);
 
   document.querySelectorAll('.eye-toggle').forEach(btn => {
     btn.addEventListener('click', () => {
